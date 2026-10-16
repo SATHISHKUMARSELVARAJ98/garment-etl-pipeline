@@ -1,0 +1,15 @@
+.venv/
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+dist/
+build/
+*.egg-info/
+logs/*
+!logs/.gitkeep
+data/rejected/*
+!data/rejected/.gitkeep
+# Integration test output
+tests/output/

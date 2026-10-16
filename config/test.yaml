@@ -1,0 +1,27 @@
+pipeline:
+  name: garment_orders_test_pipeline
+  batch_size: 100
+  source_dir: tests/fixtures
+  source_file: test_orders.csv
+  source_format: csv
+  rejected_dir: tests/output/rejected
+  log_dir: tests/output/logs
+  skip_completed_files: true
+  create_schemas: true
+database:
+  host_env: DB_HOST
+  port_env: DB_PORT
+  name_env: DB_TEST_NAME
+  user_env: DB_USER
+  password_env: DB_PASSWORD
+  sslmode_env: DB_SSLMODE
+schemas:
+  raw: raw
+  staging: staging
+  integration: integration
+  warehouse: warehouse
+  audit: audit
+quality:
+  allowed_currencies: [INR, USD, EUR, GBP]
+  allowed_statuses: [CREATED, APPROVED, IN_PRODUCTION, READY, SHIPPED, DELIVERED]
+  require_order_date_before_receive: true

@@ -1,0 +1,27 @@
+pipeline:
+  name: garment_orders_pipeline
+  batch_size: 1000
+  source_dir: ../synthetic_garment_source/data/generated/v1.0.0/orders
+  source_file: garment_orders.csv
+  source_format: auto
+  rejected_dir: ../data/rejected
+  log_dir: ../logs
+  skip_completed_files: true
+  create_schemas: true
+database:
+  host_env: DB_HOST
+  port_env: DB_PORT
+  name_env: DB_NAME
+  user_env: DB_USER
+  password_env: DB_PASSWORD
+  sslmode_env: DB_SSLMODE
+schemas:
+  raw: raw
+  staging: staging
+  integration: integration
+  warehouse: warehouse
+  audit: audit
+quality:
+  allowed_currencies: [INR, USD, EUR, GBP]
+  allowed_statuses: [CREATED, APPROVED, IN_PRODUCTION, READY, SHIPPED, DELIVERED]
+  require_order_date_before_receive: true

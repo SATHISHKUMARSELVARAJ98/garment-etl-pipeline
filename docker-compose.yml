@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: garment_dw
+      POSTGRES_USER: garment_etl
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me_local_only}
+    ports:
+      - "5432:5432"
+    volumes:
+      - garment_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U garment_etl -d garment_dw"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  garment_pgdata:

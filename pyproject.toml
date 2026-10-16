@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "garment-etl-pipeline"
+version = "1.0.0"
+description = "Synthetic garment ERP ETL pipeline to PostgreSQL"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["SQLAlchemy>=2.0", "psycopg[binary]>=3.2", "PyYAML>=6.0", "python-dotenv>=1.0", "pyarrow>=15.0"]
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+[project.scripts]
+garment-etl = "garment_etl.cli:main"
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
