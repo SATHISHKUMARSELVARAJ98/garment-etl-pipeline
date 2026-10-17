@@ -3,6 +3,7 @@ import csv
 import logging
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import text
@@ -238,3 +239,47 @@ def test_pipeline_rejects_invalid_record(test_setup):
 
     assert rejected_count == 1
     assert invalid_order_count == 0
+
+
+
+
+def test_pipeline_marks_run_failed_when_error_audit_fails(test_setup):
+    config, engine, source_file, rows, logger = test_setup
+    audit = config.schemas["audit"]
+
+    original_text = text
+
+    def fail_error_log_sql(sql, *args, **kwargs):
+        if "error_log" in str(sql).lower():
+            raise RuntimeError("Simulated error audit failure")
+        return original_text(sql, *args, **kwargs)
+
+    with patch(
+        "garment_etl.pipeline.read_records",
+        side_effect=ValueError("Simulated file processing failure"),
+    ):
+        with patch(
+            "garment_etl.pipeline.text",
+            side_effect=fail_error_log_sql,
+        ):
+            with pytest.raises(
+                RuntimeError,
+                match="Simulated error audit failure",
+            ):
+                run_pipeline(
+                    config=config,
+                    engine=engine,
+                    logger=logger,
+                    source=source_file,
+                )
+
+    with engine.connect() as conn:
+        run = conn.execute(
+            text(
+                f'SELECT status, finished_at FROM "{audit}".pipeline_run '
+                "ORDER BY run_id DESC LIMIT 1"
+            )
+        ).mappings().one()
+
+    assert run["status"] == "FAILED"
+    assert run["finished_at"] is not None

@@ -50,7 +50,30 @@ def run_pipeline(config, engine, logger, source=None, force_baseline=False):
             unchanged_records=0,
         )
     for path in sources:
-        digest, name = sha256_file(path), path.name
+        name = path.name
+
+        try:
+            digest = sha256_file(path)
+        except Exception as exc:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        f"""
+                        UPDATE "{a}".pipeline_run
+                        SET status = 'FAILED',
+                            finished_at = :finished_at,
+                            error_message = :error_message
+                        WHERE run_id = :run_id
+                        """
+                    ),
+                    {
+                        "finished_at": datetime.now(timezone.utc),
+                        "error_message": str(exc),
+                        "run_id": run_id,
+                    },
+                )
+
+            raise
         try:
             if config.skip_completed_files and not force_baseline:
                 with engine.connect() as conn:
@@ -190,11 +213,76 @@ def run_pipeline(config, engine, logger, source=None, force_baseline=False):
         except Exception as exc:
             totals["files_failed"] += 1
             logger.exception("Failed processing %s", path)
-            with engine.begin() as conn:
-                conn.execute(text(f'''UPDATE "{a}".file_load SET status='FAILED',finished_at=now(),error_message=:e
-                    WHERE source_name=:n AND source_sha256=:h'''),{"e":str(exc)[:4000],"n":name,"h":digest})
-                conn.execute(text(f'''INSERT INTO "{a}".error_log(run_id,error_type,error_message) VALUES (:r,:t,:e)'''),
-                             {"r":run_id,"t":type(exc).__name__,"e":str(exc)[:4000]})
+
+            try:
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            f"""
+                            UPDATE "{a}".file_load
+                            SET status = 'FAILED',
+                                finished_at = now(),
+                                error_message = :error_message
+                            WHERE source_name = :source_name
+                              AND source_sha256 = :source_sha256
+                            """
+                        ),
+                        {
+                            "error_message": str(exc)[:4000],
+                            "source_name": name,
+                            "source_sha256": digest,
+                        },
+                    )
+
+                    conn.execute(
+                        text(
+                            f"""
+                            INSERT INTO "{a}".error_log
+                                (run_id, error_type, error_message)
+                            VALUES (:run_id, :error_type, :error_message)
+                            """
+                        ),
+                        {
+                            "run_id": run_id,
+                            "error_type": type(exc).__name__,
+                            "error_message": str(exc)[:4000],
+                        },
+                    )
+
+            except Exception as audit_exc:
+                logger.exception("Failed writing error audit records")
+
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text(
+                                f"""
+                                UPDATE "{a}".pipeline_run
+                                SET status = 'FAILED',
+                                    finished_at = :finished_at,
+                                    error_message = :error_message,
+                                    files_failed = :files_failed
+                                WHERE run_id = :run_id
+                                """
+                            ),
+                            {
+                                "finished_at": datetime.now(timezone.utc),
+                                "error_message": (
+                                    f"Processing error: {exc}; "
+                                    f"Audit error: {audit_exc}"
+                                )[:4000],
+                                "files_failed": totals["files_failed"],
+                                "run_id": run_id,
+                            },
+                        )
+                except Exception:
+                    logger.exception(
+                        "Could not update pipeline_run after audit failure"
+                    )
+                    raise
+
+                raise
+
     status = "FAILED" if totals["files_failed"] else "SUCCEEDED"
     
     with engine.begin() as conn:
