@@ -1,0 +1,2 @@
+order_id,style_id,supplier_id,order_date,receive_date,delivery_date,quantity,unit_price,total_amount,currency,status
+ORD002,ST001,SUP001,2026-01-01,2026-01-05,2026-01-10,0,12.50,1250.00,INR,CREATED
