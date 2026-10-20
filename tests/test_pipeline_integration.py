@@ -283,3 +283,46 @@ def test_pipeline_marks_run_failed_when_error_audit_fails(test_setup):
 
     assert run["status"] == "FAILED"
     assert run["finished_at"] is not None
+def test_reprocessing_invalid_file_does_not_duplicate_rejected_rows(test_setup):
+    config, engine, source_file, rows, logger = test_setup
+    audit = config.schemas["audit"]
+
+    invalid_rows = [dict(rows[0])]
+    invalid_rows[0]["quantity"] = "0"
+
+    with source_file.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=invalid_rows[0].keys())
+        writer.writeheader()
+        writer.writerows(invalid_rows)
+
+    first = run_pipeline(config, engine, logger, source=source_file)
+    second = run_pipeline(
+        config,
+        engine,
+        logger,
+        source=source_file,
+        force_baseline=True,
+    )
+
+    assert first["rows_rejected"] == 1
+    assert second["rows_rejected"] == 1
+
+    with engine.connect() as conn:
+        rejected_count = conn.execute(
+            text(
+                f"""
+                SELECT COUNT(*)
+                FROM "{audit}".rejected_record
+                WHERE file_load_id = (
+                    SELECT file_load_id
+                    FROM "{audit}".file_load
+                    WHERE source_name = :source_name
+                    ORDER BY file_load_id DESC
+                    LIMIT 1
+                )
+                """
+            ),
+            {"source_name": source_file.name},
+        ).scalar_one()
+
+    assert rejected_count == 1

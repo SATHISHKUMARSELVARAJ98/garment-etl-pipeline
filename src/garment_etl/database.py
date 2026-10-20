@@ -47,9 +47,24 @@ def initialize_database(engine, schemas):
         receive_date DATE NOT NULL, delivery_date DATE NOT NULL, quantity INT NOT NULL CHECK(quantity>0),
         unit_price NUMERIC(12,2) NOT NULL CHECK(unit_price>0), total_amount NUMERIC(18,2) NOT NULL CHECK(total_amount>0),
         currency CHAR(3) NOT NULL, status TEXT NOT NULL, source_file_load_id BIGINT NOT NULL, loaded_at TIMESTAMPTZ DEFAULT now())''',
-      f'''CREATE TABLE IF NOT EXISTS "{audit}".rejected_record (
-        rejected_id BIGSERIAL PRIMARY KEY, file_load_id BIGINT NOT NULL REFERENCES "{audit}".file_load(file_load_id),
-        row_number BIGINT NOT NULL, source_payload JSONB NOT NULL, error_reasons JSONB NOT NULL, rejected_at TIMESTAMPTZ DEFAULT now())''',
+      f'''
+        CREATE TABLE IF NOT EXISTS "{audit}".rejected_record (
+            rejected_id BIGSERIAL PRIMARY KEY,
+            file_load_id BIGINT NOT NULL
+                REFERENCES "{audit}".file_load(file_load_id),
+            row_number BIGINT NOT NULL,
+            source_payload JSONB NOT NULL,
+            error_reasons JSONB NOT NULL,
+            rejected_at TIMESTAMPTZ DEFAULT now(),
+
+            CONSTRAINT uq_rejected_record_file_row
+                UNIQUE (file_load_id, row_number)
+        )
+        ''',
+      f'''
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_rejected_record_file_row
+      ON "{audit}".rejected_record (file_load_id, row_number)
+      ''',
       f'''CREATE TABLE IF NOT EXISTS "{audit}".error_log (
         error_id BIGSERIAL PRIMARY KEY, run_id BIGINT, file_load_id BIGINT, error_type TEXT NOT NULL,
         error_message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())'''

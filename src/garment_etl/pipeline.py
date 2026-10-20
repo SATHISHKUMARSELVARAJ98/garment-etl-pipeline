@@ -106,8 +106,12 @@ def run_pipeline(config, engine, logger, source=None, force_baseline=False):
                                                          config.require_order_date_before_receive)
                     if errors:
                         rejected_count += 1; rejects.append((rownum,errors,safe))
-                        conn.execute(text(f'''INSERT INTO "{a}".rejected_record(file_load_id,row_number,source_payload,error_reasons)
-                            VALUES (:f,:r,CAST(:p AS JSONB),CAST(:e AS JSONB))'''),
+                        conn.execute(text(f'''
+                                INSERT INTO "{a}".rejected_record
+                                    (file_load_id, row_number, source_payload, error_reasons)
+                                VALUES (:f, :r, CAST(:p AS JSONB), CAST(:e AS JSONB))
+                                ON CONFLICT (file_load_id, row_number) DO NOTHING
+                                '''),
                             {"f":file_id,"r":rownum,"p":json.dumps(safe,ensure_ascii=False),"e":json.dumps(errors)})
                         continue
                     accepted += 1
