@@ -131,3 +131,174 @@ def test_cli_returns_error_when_config_loading_fails(monkeypatch, capsys):
 
     assert result == 2
     assert "ERROR: Configuration unavailable" in captured.err
+
+
+def test_init_db_initializes_database(monkeypatch, capsys, tmp_path):
+    fake_config = SimpleNamespace(
+        log_dir=tmp_path,
+        schemas={
+            "raw": "raw",
+            "staging": "staging",
+            "integration": "integration",
+            "warehouse": "warehouse",
+            "audit": "audit",
+        },
+        db_url="postgresql://unused",
+    )
+
+    fake_engine = MagicMock()
+    initialize_mock = MagicMock()
+
+    monkeypatch.setattr(cli, "load_config", lambda path: fake_config)
+    monkeypatch.setattr(cli, "make_engine", lambda url: fake_engine)
+    monkeypatch.setattr(cli, "initialize_database", initialize_mock)
+
+    result = cli.main(["init-db"])
+
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "Database schemas and tables initialized." in captured.out
+    initialize_mock.assert_called_once_with(fake_engine, fake_config.schemas)
+
+
+def test_run_command_returns_success_when_pipeline_succeeds(
+    monkeypatch, capsys, tmp_path
+):
+    fake_config = SimpleNamespace(
+        log_dir=tmp_path,
+        db_url="postgresql://unused",
+        create_schemas=False,
+    )
+    fake_engine = MagicMock()
+    fake_result = {
+        "status": "SUCCEEDED",
+        "rows_read": 10,
+        "rows_accepted": 10,
+        "rows_rejected": 0,
+    }
+    pipeline_mock = MagicMock(return_value=fake_result)
+
+    monkeypatch.setattr(cli, "load_config", lambda path: fake_config)
+    monkeypatch.setattr(cli, "make_engine", lambda url: fake_engine)
+    monkeypatch.setattr(cli, "run_pipeline", pipeline_mock)
+
+    result = cli.main(["run"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+
+    assert result == 0
+    assert output["status"] == "SUCCEEDED"
+    pipeline_mock.assert_called_once()
+
+
+def test_run_command_returns_failure_when_pipeline_fails(
+    monkeypatch, capsys, tmp_path
+):
+    fake_config = SimpleNamespace(
+        log_dir=tmp_path,
+        db_url="postgresql://unused",
+        create_schemas=False,
+    )
+    fake_engine = MagicMock()
+    fake_result = {
+        "status": "FAILED",
+        "rows_read": 10,
+        "rows_accepted": 8,
+        "rows_rejected": 2,
+    }
+    pipeline_mock = MagicMock(return_value=fake_result)
+
+    monkeypatch.setattr(cli, "load_config", lambda path: fake_config)
+    monkeypatch.setattr(cli, "make_engine", lambda url: fake_engine)
+    monkeypatch.setattr(cli, "run_pipeline", pipeline_mock)
+
+    result = cli.main(["run"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+
+    assert result == 1
+    assert output["status"] == "FAILED"
+    pipeline_mock.assert_called_once()
+
+
+def test_run_initializes_schemas_when_configured(monkeypatch, capsys, tmp_path):
+    fake_config = SimpleNamespace(
+        log_dir=tmp_path,
+        db_url="postgresql://unused",
+        create_schemas=True,
+        schemas={
+            "raw": "raw",
+            "staging": "staging",
+            "integration": "integration",
+            "warehouse": "warehouse",
+            "audit": "audit",
+        },
+    )
+
+    fake_engine = MagicMock()
+    initialize_mock = MagicMock()
+    pipeline_mock = MagicMock(
+        return_value={
+            "status": "SUCCEEDED",
+            "rows_read": 0,
+            "rows_accepted": 0,
+            "rows_rejected": 0,
+        }
+    )
+
+    monkeypatch.setattr(cli, "load_config", lambda path: fake_config)
+    monkeypatch.setattr(cli, "make_engine", lambda url: fake_engine)
+    monkeypatch.setattr(cli, "initialize_database", initialize_mock)
+    monkeypatch.setattr(cli, "run_pipeline", pipeline_mock)
+
+    result = cli.main(["run"])
+
+    capsys.readouterr()
+
+    assert result == 0
+    initialize_mock.assert_called_once_with(fake_engine, fake_config.schemas)
+    pipeline_mock.assert_called_once()
+
+
+def test_run_skips_schema_initialization_when_not_configured(
+    monkeypatch, capsys, tmp_path
+):
+    fake_config = SimpleNamespace(
+        log_dir=tmp_path,
+        db_url="postgresql://unused",
+        create_schemas=False,
+        schemas={
+            "raw": "raw",
+            "staging": "staging",
+            "integration": "integration",
+            "warehouse": "warehouse",
+            "audit": "audit",
+        },
+    )
+
+    fake_engine = MagicMock()
+    initialize_mock = MagicMock()
+    pipeline_mock = MagicMock(
+        return_value={
+            "status": "SUCCEEDED",
+            "rows_read": 0,
+            "rows_accepted": 0,
+            "rows_rejected": 0,
+        }
+    )
+
+    monkeypatch.setattr(cli, "load_config", lambda path: fake_config)
+    monkeypatch.setattr(cli, "make_engine", lambda url: fake_engine)
+    monkeypatch.setattr(cli, "initialize_database", initialize_mock)
+    monkeypatch.setattr(cli, "run_pipeline", pipeline_mock)
+
+    result = cli.main(["run"])
+
+    capsys.readouterr()
+
+    assert result == 0
+    initialize_mock.assert_not_called()
+    pipeline_mock.assert_called_once()
