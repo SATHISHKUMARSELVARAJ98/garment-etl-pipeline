@@ -276,13 +276,27 @@ def test_pipeline_marks_run_failed_when_error_audit_fails(test_setup):
     with engine.connect() as conn:
         run = conn.execute(
             text(
-                f'SELECT status, finished_at FROM "{audit}".pipeline_run '
+                f'SELECT run_id, status, finished_at '
+                f'FROM "{audit}".pipeline_run '
                 "ORDER BY run_id DESC LIMIT 1"
             )
         ).mappings().one()
 
+        file_load = conn.execute(
+            text(
+                f'SELECT status, finished_at '
+                f'FROM "{audit}".file_load '
+                "WHERE run_id = :run_id "
+                "ORDER BY file_load_id DESC LIMIT 1"
+            ),
+            {"run_id": run["run_id"]},
+        ).mappings().one()
+
     assert run["status"] == "FAILED"
     assert run["finished_at"] is not None
+
+    assert file_load["status"] == "FAILED"
+    assert file_load["finished_at"] is not None
 def test_reprocessing_invalid_file_does_not_duplicate_rejected_rows(test_setup):
     config, engine, source_file, rows, logger = test_setup
     audit = config.schemas["audit"]

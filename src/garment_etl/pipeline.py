@@ -256,6 +256,37 @@ def run_pipeline(config, engine, logger, source=None, force_baseline=False):
             except Exception as audit_exc:
                 logger.exception("Failed writing error audit records")
 
+                # Independently mark the file load as FAILED.
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text(
+                                f"""
+                                UPDATE "{a}".file_load
+                                SET status = 'FAILED',
+                                    finished_at = now(),
+                                    error_message = :error_message
+                                WHERE source_name = :source_name
+                                  AND source_sha256 = :source_sha256
+                                  AND run_id = :run_id
+                                """
+                            ),
+                            {
+                                "error_message": (
+                                    f"Processing error: {exc}; "
+                                    f"Audit error: {audit_exc}"
+                                )[:4000],
+                                "source_name": name,
+                                "source_sha256": digest,
+                                "run_id": run_id,
+                            },
+                        )
+                except Exception:
+                    logger.exception(
+                        "Could not update file_load after audit failure"
+                    )
+
+                # Keep the existing pipeline_run failure update.
                 try:
                     with engine.begin() as conn:
                         conn.execute(
