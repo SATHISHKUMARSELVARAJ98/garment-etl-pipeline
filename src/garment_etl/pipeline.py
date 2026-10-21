@@ -68,7 +68,7 @@ def run_pipeline(config, engine, logger, source=None, force_baseline=False):
                     ),
                     {
                         "finished_at": datetime.now(timezone.utc),
-                        "error_message": str(exc),
+                        "error_message": (f"Failed to hash source file '{path}': {exc}")[:4000],
                         "run_id": run_id,
                     },
                 )

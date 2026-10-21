@@ -340,3 +340,45 @@ def test_reprocessing_invalid_file_does_not_duplicate_rejected_rows(test_setup):
         ).scalar_one()
 
     assert rejected_count == 1
+
+def test_pipeline_marks_run_failed_when_file_hashing_fails(test_setup):
+    config, engine, source_file, rows, logger = test_setup
+    audit = config.schemas["audit"]
+
+    with patch(
+        "garment_etl.pipeline.sha256_file",
+        side_effect=OSError("Simulated file hashing failure"),
+    ):
+        with pytest.raises(
+            OSError,
+            match="Simulated file hashing failure",
+        ):
+            run_pipeline(
+                config=config,
+                engine=engine,
+                logger=logger,
+                source=source_file,
+            )
+
+    with engine.connect() as conn:
+        run = conn.execute(
+            text(
+                f'SELECT run_id, status, finished_at, error_message '
+                f'FROM "{audit}".pipeline_run '
+                "ORDER BY run_id DESC LIMIT 1"
+            )
+        ).mappings().one()
+
+        file_load_count = conn.execute(
+            text(
+                f'SELECT COUNT(*) FROM "{audit}".file_load '
+                "WHERE run_id = :run_id"
+            ),
+            {"run_id": run["run_id"]},
+        ).scalar_one()
+
+    assert run["status"] == "FAILED"
+    assert run["finished_at"] is not None
+    assert file_load_count == 0
+    assert str(source_file) in run["error_message"]
+    assert "Simulated file hashing failure" in run["error_message"]
