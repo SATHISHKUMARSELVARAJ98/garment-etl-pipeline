@@ -382,3 +382,85 @@ def test_pipeline_marks_run_failed_when_file_hashing_fails(test_setup):
     assert file_load_count == 0
     assert str(source_file) in run["error_message"]
     assert "Simulated file hashing failure" in run["error_message"]
+
+def test_pipeline_records_failure_when_source_discovery_fails(test_setup):
+    config, engine, source_file, rows, logger = test_setup
+    audit = config.schemas["audit"]
+
+    with engine.connect() as conn:
+        previous_run_id = conn.execute(
+            text(
+                f'SELECT COALESCE(MAX(run_id), 0) '
+                f'FROM "{audit}".pipeline_run'
+            )
+        ).scalar_one()
+
+    with patch(
+        "garment_etl.pipeline.discover_sources",
+        side_effect=OSError("Simulated source discovery failure"),
+    ):
+        with pytest.raises(
+            OSError,
+            match="Simulated source discovery failure",
+        ):
+            run_pipeline(
+                config=config,
+                engine=engine,
+                logger=logger,
+                source=source_file,
+            )
+
+    with engine.connect() as conn:
+        run = conn.execute(
+            text(
+                f'SELECT run_id, status, finished_at, error_message '
+                f'FROM "{audit}".pipeline_run '
+                "ORDER BY run_id DESC LIMIT 1"
+            )
+        ).mappings().one()
+
+    assert run["run_id"] > previous_run_id
+    assert run["status"] == "FAILED"
+    assert run["finished_at"] is not None
+    assert "Simulated source discovery failure" in run["error_message"]
+
+def test_pipeline_marks_run_failed_when_no_sources_found(test_setup):
+    config, engine, source_file, rows, logger = test_setup
+    audit = config.schemas["audit"]
+
+    with engine.connect() as conn:
+        previous_run_id = conn.execute(
+            text(
+                f'SELECT COALESCE(MAX(run_id), 0) '
+                f'FROM "{audit}".pipeline_run'
+            )
+        ).scalar_one()
+
+    with patch(
+        "garment_etl.pipeline.discover_sources",
+        return_value=[],
+    ):
+        with pytest.raises(
+            FileNotFoundError,
+            match="No supported source files found",
+        ):
+            run_pipeline(
+                config=config,
+                engine=engine,
+                logger=logger,
+                source=source_file,
+            )
+
+    with engine.connect() as conn:
+        run = conn.execute(
+            text(
+                f'SELECT run_id, status, finished_at, error_message '
+                f'FROM "{audit}".pipeline_run '
+                "ORDER BY run_id DESC LIMIT 1"
+            )
+        ).mappings().one()
+
+    assert run["run_id"] > previous_run_id
+    assert run["status"] == "FAILED"
+    assert run["finished_at"] is not None
+    assert "No supported source files found" in run["error_message"]

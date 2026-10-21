@@ -30,12 +30,52 @@ def json_safe(value):
 
 def run_pipeline(config, engine, logger, source=None, force_baseline=False):
     selected = source or (config.source_dir / config.source_file)
-    sources = discover_sources(selected, config.source_file if source is None and selected.is_dir() else None)
-    if not sources: raise FileNotFoundError(f"No supported source files found: {selected}")
     s, a = config.schemas, config.schemas["audit"]
+
     with engine.begin() as conn:
-        run_id = conn.execute(text(f'INSERT INTO "{a}".pipeline_run(pipeline_name,status) VALUES (:n,:s) RETURNING run_id'),
-                              {"n":config.name,"s":"RUNNING"}).scalar_one()
+        run_id = conn.execute(
+            text(
+                f'''
+                INSERT INTO "{a}".pipeline_run (pipeline_name, status)
+                VALUES (:name, :status)
+                RETURNING run_id
+                '''
+            ),
+            {"name": config.name, "status": "RUNNING"},
+        ).scalar_one()
+
+    try:
+        sources = discover_sources(
+            selected,
+            config.source_file
+            if source is None and selected.is_dir()
+            else None,
+        )
+        if not sources:
+            raise FileNotFoundError(
+                f"No supported source files found: {selected}"
+            )
+    except Exception as exc:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    f'''
+                    UPDATE "{a}".pipeline_run
+                    SET status = 'FAILED',
+                        finished_at = :finished_at,
+                        error_message = :error_message
+                    WHERE run_id = :run_id
+                    '''
+                ),
+                {
+                    "finished_at": datetime.now(timezone.utc),
+                    "error_message": (
+                        f"Source discovery failed for '{selected}': {exc}"
+                    )[:4000],
+                    "run_id": run_id,
+                },
+            )
+        raise
     totals = dict(
             run_id=run_id,
             files_seen=len(sources),
